@@ -1,0 +1,19 @@
+# ================================================================
+# PHASE 1 — Labels & Selectors Explained
+# ================================================================
+# Labels = Resources pe chipkaye hue sticky notes
+# Selectors = "In sticky notes wale resources do mujhe"
+#
+# RULE: Deployment ke selector aur Pod ke labels EXACTLY match karne chahiye.
+#
+# Hamare saare services yeh labels follow karenge:
+#
+#   app.kubernetes.io/name: shopwave          ← project naam
+#   app.kubernetes.io/component: api-gateway  ← service naam
+#   app.kubernetes.io/version: "1.0.0"        ← version
+#   environment: production                   ← environment
+#
+# Useful commands:
+#   kubectl get pods -l app.kubernetes.io/component=api-gateway -n shopwave
+#   kubectl get all -l environment=production -n shopwave
+# ================================================================

@@ -1,0 +1,72 @@
+# ================================================================
+# PHASE 6 — Release Strategies
+# ================================================================
+
+# ── Canary Deployment ─────────────────────────────────────────
+# 90% traffic → stable version, 10% → new version
+# Agar new version theek hai toh slowly 100% karo
+
+# Canary: product-service v2 (10% traffic)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-canary
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/component: product-service
+    track: canary
+spec:
+  replicas: 1   # 1 canary pod vs 9 stable pods = ~10% canary traffic
+  selector:
+    matchLabels:
+      app: product-service
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: product-service   # Service DONO pods ko traffic bhejegi (canary + stable)
+        track: canary
+        version: "2.0.0"
+    spec:
+      containers:
+      - name: product-service
+        image: shopwave/product-service:2.0.0  # New version
+        # ... same env vars as stable
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+
+---
+# ── Blue-Green: Ek command se switch karo ─────────────────────
+# Blue = current prod, Green = new version ready
+# Switch: Service ka selector update karo
+
+# Green deployment (new version, not receiving traffic yet)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway-green
+  namespace: shopwave
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway-green
+  template:
+    metadata:
+      labels:
+        app: api-gateway-green
+        color: green
+        version: "2.0.0"
+    spec:
+      containers:
+      - name: api-gateway
+        image: shopwave/api-gateway:2.0.0
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "256Mi", cpu: "300m" }
+
+# Switch command:
+# kubectl patch service api-gateway -n shopwave -p '{"spec":{"selector":{"app":"api-gateway-green"}}}'
+# Rollback:
+# kubectl patch service api-gateway -n shopwave -p '{"spec":{"selector":{"app":"api-gateway"}}}'

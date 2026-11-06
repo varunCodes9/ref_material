@@ -1,0 +1,49 @@
+# ================================================================
+# PHASE 5 — Security Contexts (Production-hardened pods)
+# ================================================================
+# Yeh patch hai existing deployments ke liye security add karne ke liye
+# Production mein yeh Deployment spec ke andar hota hai
+# ================================================================
+
+# Example: api-gateway with full security context
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway-secure
+  namespace: shopwave
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      serviceAccountName: api-gateway-sa   # Custom SA, not default
+      automountServiceAccountToken: false  # JWT token auto-mount band karo
+      securityContext:
+        runAsNonRoot: true      # Root se kabhi nahi
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault  # Syscall filtering
+      containers:
+      - name: api-gateway
+        image: shopwave/api-gateway:1.0.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]       # Linux capabilities sabhi drop karo
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp       # readOnlyRootFilesystem ke saath tmp zaroori
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "256Mi", cpu: "300m" }
+      volumes:
+      - name: tmp
+        emptyDir: {}

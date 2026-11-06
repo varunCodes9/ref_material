@@ -1,0 +1,10 @@
+apiVersion: v2
+name: shopwave
+description: ShopWave E-Commerce Platform — Complete Kubernetes Deployment
+type: application
+version: "1.0.0"
+appVersion: "1.0.0"
+keywords: [ecommerce, microservices, nodejs]
+maintainers:
+- name: ShopWave Team
+  email: devops@shopwave.com

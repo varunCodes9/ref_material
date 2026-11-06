@@ -1,0 +1,45 @@
+{{- range $name, $svc := .Values }}
+{{- if and (kindIs "map" $svc) ($svc.image) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name | kebabcase }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: shopwave
+    app.kubernetes.io/component: {{ $name | kebabcase }}
+    app.kubernetes.io/version: {{ $.Values.global.imageTag | quote }}
+spec:
+  replicas: {{ $svc.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $name | kebabcase }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app: {{ $name | kebabcase }}
+        version: {{ $.Values.global.imageTag | quote }}
+    spec:
+      containers:
+      - name: {{ $name | kebabcase }}
+        image: "{{ $.Values.global.imageRegistry }}/{{ $svc.image }}:{{ $.Values.global.imageTag }}"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: {{ $svc.port }}
+          name: http
+        resources:
+          {{- toYaml $svc.resources | nindent 10 }}
+        livenessProbe:
+          httpGet: { path: /health/live, port: http }
+          initialDelaySeconds: 20
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: { path: /health/ready, port: http }
+          initialDelaySeconds: 10
+          periodSeconds: 10
+---
+{{- end }}
+{{- end }}

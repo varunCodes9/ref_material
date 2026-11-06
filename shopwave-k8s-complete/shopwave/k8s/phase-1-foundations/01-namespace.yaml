@@ -1,0 +1,35 @@
+# ================================================================
+# PHASE 1 — STEP 1: Namespace
+# ================================================================
+# PROBLEM WITHOUT NAMESPACE:
+#   Agar namespace nahi hoga toh shopwave ke saare resources
+#   "default" namespace mein jayenge — wahi jahan system resources hain.
+#   kubectl get pods → 200 pods dikhenge, tumhara kaunsa hai?
+#   Ek galat delete command = production disaster!
+#
+# SOLUTION: Apna alag "ghar" banao cluster mein.
+#
+# TRY KARO:
+#   kubectl apply -f 01-namespace.yaml
+#   kubectl get ns shopwave
+# ================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shopwave
+  labels:
+    app.kubernetes.io/name: shopwave
+    environment: production
+    # Pod Security Standard — restricted mode mein koi bhi pod
+    # root user se nahi chalega. Kubernetes enforce karega.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shopwave-monitoring
+  labels:
+    app.kubernetes.io/name: shopwave-monitoring
+    purpose: observability

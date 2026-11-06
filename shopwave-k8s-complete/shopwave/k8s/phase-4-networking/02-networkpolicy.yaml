@@ -1,0 +1,180 @@
+# ================================================================
+# PHASE 4 — NetworkPolicy
+# ================================================================
+# DEFAULT: K8s mein saare pods sab pods se baat kar sakte hain.
+# Yeh insecure hai! notification-service ko postgres directly
+# access kyun karna chahiye?
+#
+# STRATEGY: Default deny all, phir whitelist karo.
+#
+# BREAK IT (Phase 4 exercise):
+#   Apply yeh policies
+#   kubectl exec -it deployment/user-service -n shopwave -- wget -qO- http://order-service:3003/health
+#   Yeh FAIL hoga! (user-service ko order-service access nahi karna chahiye)
+#   Check: kubectl describe networkpolicy -n shopwave
+# ================================================================
+
+# ── Default Deny All ──────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: shopwave
+spec:
+  podSelector: {}         # Saare pods
+  policyTypes: [Ingress, Egress]  # Dono directions band
+
+---
+# ── Allow DNS (zaroori hai!) ──────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: shopwave
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+
+---
+# ── API Gateway: Allow from Ingress ──────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-ingress
+  namespace: shopwave
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - port: 3000
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: user-service
+    ports: [{ port: 3001 }]
+  - to:
+    - podSelector:
+        matchLabels:
+          app: product-service
+    ports: [{ port: 3002 }]
+  - to:
+    - podSelector:
+        matchLabels:
+          app: order-service
+    ports: [{ port: 3003 }]
+  - to:
+    - podSelector:
+        matchLabels:
+          app: notification-service
+    ports: [{ port: 3004 }]
+
+---
+# ── User Service: DB + Redis access ──────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-user-service
+  namespace: shopwave
+spec:
+  podSelector:
+    matchLabels:
+      app: user-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports: [{ port: 3001 }]
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports: [{ port: 5432 }]
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports: [{ port: 6379 }]
+
+---
+# ── Product Service ───────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-product-service
+  namespace: shopwave
+spec:
+  podSelector:
+    matchLabels:
+      app: product-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+  - from:
+    - podSelector:
+        matchLabels:
+          app: order-service   # order-service stock update ke liye
+    ports: [{ port: 3002 }]
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports: [{ port: 5432 }]
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports: [{ port: 6379 }]
+
+---
+# ── Order Service ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-order-service
+  namespace: shopwave
+spec:
+  podSelector:
+    matchLabels:
+      app: order-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api-gateway
+    ports: [{ port: 3003 }]
+  egress:
+  - to:
+    - podSelector: { matchLabels: { app: postgres } }
+    ports: [{ port: 5432 }]
+  - to:
+    - podSelector: { matchLabels: { app: kafka } }
+    ports: [{ port: 9092 }]
+  - to:
+    - podSelector: { matchLabels: { app: product-service } }
+    ports: [{ port: 3002 }]

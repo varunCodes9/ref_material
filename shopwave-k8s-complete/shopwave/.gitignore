@@ -1,0 +1,9 @@
+# !! KABHI GIT MEIN PUSH MAT KARO !!
+k8s/phase-2-config/02-secrets.yaml
+**/secrets.yaml
+**/.env
+**/.env.local
+**/node_modules/
+**/dist/
+**/*.log
+docker-compose.override.yml

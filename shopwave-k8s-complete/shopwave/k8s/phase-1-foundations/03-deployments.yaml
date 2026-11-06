@@ -1,0 +1,412 @@
+# ================================================================
+# PHASE 1 — STEP 3: All Service Deployments
+# ================================================================
+# PROBLEM WITHOUT DEPLOYMENT:
+#   Agar directly Pod banate toh:
+#   - Pod crash = gone forever, manually banana padta
+#   - Update karna = downtime (pod delete, naya banana)
+#   - Scale karna = manually pods banana
+#
+# DEPLOYMENT KI GUARANTEE:
+#   "Hamesha exactly N pods chalte rahenge"
+#   "Update karo zero downtime mein"
+#   "Ek command se rollback karo"
+#
+# APPLY: kubectl apply -f 03-deployments.yaml -n shopwave
+# VERIFY: kubectl get deployments -n shopwave
+# WATCH:  kubectl get pods -n shopwave -w
+# ================================================================
+
+# ── API Gateway Deployment ─────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/name: shopwave
+    app.kubernetes.io/component: api-gateway
+spec:
+  replicas: 2          # 2 pods hamesha — ek fail hua toh dusra handle karta hai
+  selector:
+    matchLabels:
+      app: api-gateway # YEH neeche template.labels se match karna ZAROORI hai
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1       # Update ke time ek extra pod
+      maxUnavailable: 0 # Zero downtime
+  template:
+    metadata:
+      labels:
+        app: api-gateway                        # selector se match!
+        app.kubernetes.io/component: api-gateway
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"  # Prometheus in annotations ko dekhta hai
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: api-gateway
+        image: shopwave/api-gateway:1.0.0
+        ports:
+        - name: http
+          containerPort: 3000
+        env:
+        - name: PORT
+          value: "3000"
+        - name: NODE_ENV
+          value: "production"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-secrets
+              key: JWT_SECRET
+        - name: USER_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: USER_SERVICE_URL
+        - name: PRODUCT_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: PRODUCT_SERVICE_URL
+        - name: ORDER_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: ORDER_SERVICE_URL
+        - name: NOTIFICATION_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: NOTIFICATION_SERVICE_URL
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "256Mi", cpu: "300m" }
+        livenessProbe:
+          httpGet: { path: /health/live, port: 3000 }
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /health/ready, port: 3000 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        startupProbe:
+          httpGet: { path: /health/live, port: 3000 }
+          failureThreshold: 30
+          periodSeconds: 5
+      terminationGracePeriodSeconds: 30
+---
+# ── User Service Deployment ────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/component: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app: user-service
+        app.kubernetes.io/component: user-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: user-service
+        image: shopwave/user-service:1.0.0
+        ports:
+        - name: http
+          containerPort: 3001
+        env:
+        - name: PORT
+          value: "3001"
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: DB_PORT
+        - name: DB_NAME
+          value: "shopwave_users"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-db-secret
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-db-secret
+              key: DB_PASSWORD
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: shopwave-config
+              key: REDIS_PORT
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-secrets
+              key: REDIS_PASSWORD
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-secrets
+              key: JWT_SECRET
+        - name: JWT_REFRESH_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: shopwave-secrets
+              key: JWT_REFRESH_SECRET
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+        livenessProbe:
+          httpGet: { path: /health/live, port: 3001 }
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          failureThreshold: 3
+        readinessProbe:
+          httpGet: { path: /health/ready, port: 3001 }
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      terminationGracePeriodSeconds: 30
+---
+# ── Product Service Deployment ─────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/component: product-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: product-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app: product-service
+        app.kubernetes.io/component: product-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3002"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: product-service
+        image: shopwave/product-service:1.0.0
+        ports:
+        - name: http
+          containerPort: 3002
+        env:
+        - name: PORT
+          value: "3002"
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_HOST }
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_PORT }
+        - name: DB_NAME
+          value: "shopwave_products"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_USER }
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_PASSWORD }
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: REDIS_HOST }
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: REDIS_PORT }
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: shopwave-secrets, key: REDIS_PASSWORD }
+        - name: CACHE_TTL_SECONDS
+          value: "300"
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+        livenessProbe:
+          httpGet: { path: /health/live, port: 3002 }
+          initialDelaySeconds: 20
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: { path: /health/ready, port: 3002 }
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      terminationGracePeriodSeconds: 30
+---
+# ── Order Service Deployment ───────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/component: order-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels:
+        app: order-service
+        app.kubernetes.io/component: order-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3003"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: order-service
+        image: shopwave/order-service:1.0.0
+        ports:
+        - name: http
+          containerPort: 3003
+        env:
+        - name: PORT
+          value: "3003"
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_HOST }
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_PORT }
+        - name: DB_NAME
+          value: "shopwave_orders"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_USER }
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_PASSWORD }
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: KAFKA_BROKERS }
+        - name: PRODUCT_SERVICE_URL
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: PRODUCT_SERVICE_URL }
+        resources:
+          requests: { memory: "128Mi", cpu: "100m" }
+          limits:   { memory: "512Mi", cpu: "500m" }
+        livenessProbe:
+          httpGet: { path: /health/live, port: 3003 }
+          initialDelaySeconds: 25
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: { path: /health/ready, port: 3003 }
+          initialDelaySeconds: 15
+          periodSeconds: 10
+      terminationGracePeriodSeconds: 30
+---
+# ── Notification Service Deployment ───────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: shopwave
+  labels:
+    app.kubernetes.io/component: notification-service
+spec:
+  replicas: 1   # Notification service stateless nahi — 1 consumer group ke liye 1 replica
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        app.kubernetes.io/component: notification-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3004"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: notification-service
+        image: shopwave/notification-service:1.0.0
+        ports:
+        - name: http
+          containerPort: 3004
+        env:
+        - name: PORT
+          value: "3004"
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_HOST }
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: DB_PORT }
+        - name: DB_NAME
+          value: "shopwave_notifications"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_USER }
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef: { name: shopwave-db-secret, key: DB_PASSWORD }
+        - name: KAFKA_BROKERS
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: KAFKA_BROKERS }
+        - name: SMTP_HOST
+          valueFrom:
+            configMapKeyRef: { name: shopwave-config, key: SMTP_HOST }
+        resources:
+          requests: { memory: "128Mi", cpu: "50m" }
+          limits:   { memory: "256Mi", cpu: "200m" }
+        livenessProbe:
+          httpGet: { path: /health/live, port: 3004 }
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          httpGet: { path: /health/ready, port: 3004 }
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      terminationGracePeriodSeconds: 30

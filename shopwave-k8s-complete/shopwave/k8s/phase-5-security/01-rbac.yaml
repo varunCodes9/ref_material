@@ -1,0 +1,89 @@
+# ================================================================
+# PHASE 5 — RBAC + ServiceAccounts
+# ================================================================
+# DEFAULT: Sab pods "default" ServiceAccount use karte hain
+# Default SA ko cluster-admin jaisi permissions ho sakti hain — DANGEROUS!
+#
+# PRINCIPLE: Least Privilege — sirf woh permissions jo zaroori hain
+#
+# BREAK IT:
+#   kubectl auth can-i get secrets --as=system:serviceaccount:shopwave:order-sa -n shopwave
+#   kubectl auth can-i delete pods --as=system:serviceaccount:shopwave:order-sa -n shopwave
+# ================================================================
+
+# ── ServiceAccounts ───────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway-sa
+  namespace: shopwave
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-service-sa
+  namespace: shopwave
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: product-service-sa
+  namespace: shopwave
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: order-service-sa
+  namespace: shopwave
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  namespace: shopwave
+
+---
+# ── Role: Read ConfigMaps & Secrets ──────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shopwave-app-role
+  namespace: shopwave
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch"]       # Sirf padhna
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]                # Sirf get — list nahi (list se sab secrets exposed honge)
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]        # Apne pod ki info dekhna (health checks ke liye)
+
+---
+# ── RoleBinding: Har service ko role dena ────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shopwave-app-binding
+  namespace: shopwave
+subjects:
+- kind: ServiceAccount
+  name: api-gateway-sa
+  namespace: shopwave
+- kind: ServiceAccount
+  name: user-service-sa
+  namespace: shopwave
+- kind: ServiceAccount
+  name: product-service-sa
+  namespace: shopwave
+- kind: ServiceAccount
+  name: order-service-sa
+  namespace: shopwave
+- kind: ServiceAccount
+  name: notification-service-sa
+  namespace: shopwave
+roleRef:
+  kind: Role
+  name: shopwave-app-role
+  apiGroup: rbac.authorization.k8s.io

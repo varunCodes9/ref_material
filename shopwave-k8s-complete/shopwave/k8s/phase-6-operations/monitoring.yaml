@@ -1,0 +1,89 @@
+# ================================================================
+# PHASE 6 — Prometheus + Grafana (via Helm — recommended)
+# ================================================================
+# INSTALL:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm install monitoring prometheus-community/kube-prometheus-stack \
+#     -n shopwave-monitoring --create-namespace \
+#     -f monitoring-values.yaml
+#
+# Access Grafana:
+#   kubectl port-forward svc/monitoring-grafana 3000:80 -n shopwave-monitoring
+#   Login: admin / prom-operator
+# ================================================================
+
+# ServiceMonitor — Prometheus ko batao shopwave services kahan hain
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: shopwave-services-monitor
+  namespace: shopwave-monitoring
+  labels:
+    release: monitoring   # Prometheus Operator is label se dhundhta hai
+spec:
+  namespaceSelector:
+    matchNames: [shopwave]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shopwave
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shopwave-alerts
+  namespace: shopwave-monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+  - name: shopwave.critical
+    rules:
+    - alert: ServiceDown
+      expr: up{namespace="shopwave"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "ShopWave service {{ $labels.job }} is DOWN"
+        description: "{{ $labels.pod }} has been down for > 1 minute"
+
+    - alert: HighErrorRate
+      expr: |
+        rate(shopwave_gateway_requests_total{status=~"5.."}[5m])
+        / rate(shopwave_gateway_requests_total[5m]) > 0.05
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High error rate in API Gateway"
+        description: "Error rate is {{ $value | humanizePercentage }}"
+
+    - alert: PodCrashLooping
+      expr: rate(kube_pod_container_status_restarts_total{namespace="shopwave"}[15m]) * 60 * 15 > 3
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Pod crash looping: {{ $labels.pod }}"
+
+    - alert: HighMemoryUsage
+      expr: |
+        container_memory_usage_bytes{namespace="shopwave"}
+        / container_spec_memory_limit_bytes{namespace="shopwave"} > 0.85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory: {{ $labels.pod }}"
+
+    - alert: DatabaseDown
+      expr: pg_up{namespace="shopwave"} == 0
+      for: 30s
+      labels:
+        severity: critical
+      annotations:
+        summary: "PostgreSQL is DOWN in ShopWave!"

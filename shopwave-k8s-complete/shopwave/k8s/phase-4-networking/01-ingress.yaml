@@ -1,0 +1,61 @@
+# ================================================================
+# PHASE 4 — Ingress
+# ================================================================
+# PROBLEM WITHOUT INGRESS:
+#   Bahar se access karna hai? LoadBalancer service banao.
+#   5 services hain? 5 LoadBalancers = 5 IP addresses = expensive!
+#
+# INGRESS KA FAYDA:
+#   Ek hi IP, ek hi LoadBalancer, rules se route karo.
+#   api.shopwave.com/api/users → user-service
+#   api.shopwave.com/api/products → product-service
+#
+# INSTALL INGRESS CONTROLLER PEHLE:
+#   Minikube: minikube addons enable ingress
+#   Helm:     helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx
+#
+# VERIFY:
+#   kubectl get ingress -n shopwave
+#   curl https://api.shopwave.com/api/products
+# ================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shopwave-ingress
+  namespace: shopwave
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://shopwave.com"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.shopwave.com
+    secretName: shopwave-tls
+  rules:
+  - host: api.shopwave.com
+    http:
+      paths:
+      # Sab API traffic → api-gateway
+      # api-gateway internal routing karega
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              name: http
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              name: http

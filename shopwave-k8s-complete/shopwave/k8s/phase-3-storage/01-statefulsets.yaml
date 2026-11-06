@@ -1,0 +1,134 @@
+# ================================================================
+# PHASE 3 — Storage: PostgreSQL StatefulSet
+# ================================================================
+# PROBLEM WITH DEPLOYMENT FOR DATABASE:
+#   Deployment mein pods ka naam random hota hai: postgres-abc123
+#   Restart hua? Naya naam: postgres-xyz789, naya volume!
+#   Data gone! 😱
+#
+# STATEFULSET KA FAYDA:
+#   - Pods ka naam predictable hota hai: postgres-0, postgres-1
+#   - Har pod ka apna dedicated PVC hota hai
+#   - Restart ke baad same pod, same volume
+#
+# PVC (PersistentVolumeClaim) kya hai?
+#   "Mujhe 10GB storage chahiye" — K8s dhundhega aur dega.
+#   Pod delete ho jaaye, data safe rahega!
+#
+# BREAK IT (Phase 3 exercise):
+#   kubectl delete pod postgres-0 -n shopwave
+#   Watch: kubectl get pods -n shopwave -w
+#   postgres-0 wapas aayega SAME data ke saath! (PVC wajah se)
+#   Agar Deployment hota: data gone!
+# ================================================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: shopwave
+  labels:
+    app: postgres
+    app.kubernetes.io/component: database
+spec:
+  serviceName: "postgres-service" # Headless service naam — StatefulSet ke liye zaroori
+  replicas: 1 # Production mein 3 (primary + 2 replicas)
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        app.kubernetes.io/component: database
+    spec:
+      securityContext:
+        fsGroup: 999 # postgres user GID — volume files ko proper permissions milein
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: shopwave-db-secret
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: shopwave-db-secret
+                  key: DB_PASSWORD
+            - name: POSTGRES_DB
+              value: "shopwave_main"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata" # Data directory
+          resources:
+            requests: { memory: "256Mi", cpu: "250m" }
+            limits: { memory: "1Gi", cpu: "1000m" }
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d # Startup scripts
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "shopwave"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "shopwave"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: postgres-init-config
+  # volumeClaimTemplates: Har pod ke liye automatically PVC banata hai
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"] # Ek hi pod read-write kar sakta hai
+        # storageClassName: "standard"     # Minikube mein "standard", prod mein "gp3" (AWS)
+        storageClassName: "managed-csi" # Minikube mein "standard", prod mein "gp3" (AWS)
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Headless Service for StatefulSet
+# StatefulSet pods ko DNS se access karne ke liye zaroori
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: shopwave
+spec:
+  clusterIP: None # "Headless" — koi virtual IP nahi, direct pod IPs
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+# ConfigMap for DB initialization
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-config
+  namespace: shopwave
+data:
+  init-databases.sql: |
+    CREATE DATABASE shopwave_users;
+    CREATE DATABASE shopwave_products;
+    CREATE DATABASE shopwave_orders;
+    CREATE DATABASE shopwave_notifications;
+    GRANT ALL PRIVILEGES ON DATABASE shopwave_users TO shopwave;
+    GRANT ALL PRIVILEGES ON DATABASE shopwave_products TO shopwave;
+    GRANT ALL PRIVILEGES ON DATABASE shopwave_orders TO shopwave;
+    GRANT ALL PRIVILEGES ON DATABASE shopwave_notifications TO shopwave;
